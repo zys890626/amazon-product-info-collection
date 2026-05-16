@@ -49,6 +49,7 @@ node scripts/collect_amazon_asins.mjs --file C:\path\to\asins.txt --out C:\path\
 - If SellerSprite is missing, open the Chrome Web Store listing, click `Add to Chrome`, accept the browser confirmation, then rerun the bootstrap helper.
 - If SellerSprite is not logged in, sign in with the configured account before collecting ASINs.
 - After installation or login, reload the Amazon page once so the SellerSprite content script can inject into the tab.
+- If the SellerSprite panel appears but key values still show as `****`, first try triggering the SellerSprite login directly from the Amazon product page by clicking the masked metric area or the panel login entry, then reload the page and check again.
 - Wait at least 10-15 seconds after navigation if SellerSprite fields do not appear immediately.
 - Prefer SellerSprite values for recent sales, revenue, FBA fee, listing date, and inventory when available.
 - Record missing fields as `null` instead of inventing values.
