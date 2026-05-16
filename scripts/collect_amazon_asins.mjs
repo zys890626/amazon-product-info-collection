@@ -93,6 +93,10 @@ function extractSellerSprite(body, asin) {
       /卖家精灵|数据来源：卖家精灵|近30天销量|销量\(父\)|销量\(父体\)|FBA费用|上架时间|关键词反查/.test(
         around
       ),
+    sellerSpriteMasked:
+      /近30天销量[\s\S]{0,40}\*{2,}|销量\(父(?:体)?\)[\s\S]{0,40}\*{2,}|Listing销售额[\s\S]{0,40}\*{2,}|FBA费用[\s\S]{0,40}\*{2,}/.test(
+        around
+      ),
     snippet: around,
     ssSalesParent: parseNumber(
       pick([/近30天销量(?:\(父体\)|\(父\))?[:：]?\s*([0-9,]+)/, /销量\(父\)[:：]?\s*([0-9,]+)/])
@@ -149,7 +153,7 @@ async function collectOne(send, asin) {
       ].filter(Boolean).join('\\n');
       const sellerSpritePanelText = Array.from(document.querySelectorAll('body *'))
         .map((el) => el.innerText?.trim() || '')
-        .filter((value) => value && /卖家精灵|关键词反查|加入产品库|近30天销量|FBA费用|上架时间/.test(value))
+        .filter((value) => value && /卖家精灵|关键词反查|加入产品库|近30天销量|Listing销售额|FBA费用|上架时间|\*{2,}/.test(value))
         .slice(0, 30)
         .join('\\n');
       return JSON.stringify({
@@ -202,6 +206,7 @@ async function collectOne(send, asin) {
     ssListedDate: ss.ssListedDate,
     ssInventory: ss.ssInventory,
     sellerSpriteLoaded: ss.sellerSpriteLoaded,
+    sellerSpriteMasked: ss.sellerSpriteMasked,
     sellerSpriteSnippet: ss.snippet.slice(0, 1500)
   };
 }
