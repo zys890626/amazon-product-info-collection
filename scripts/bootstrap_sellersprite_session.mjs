@@ -168,6 +168,72 @@ async function reloadAmazonForInjection(send) {
   await new Promise((resolve) => setTimeout(resolve, 12000));
 }
 
+async function tryAmazonPanelLogin(send) {
+  const expression = `(() => {
+    const textOf = (el) => (el?.innerText || el?.textContent || '').trim();
+    const clickable = Array.from(document.querySelectorAll('button, a, div, span'));
+    const loginEl = clickable.find((el) => /登录|login|sign in/i.test(textOf(el)));
+    if (loginEl) {
+      loginEl.click();
+      return JSON.stringify({ clicked: 'login-button', text: textOf(loginEl) });
+    }
+
+    const maskedEl = clickable.find((el) => {
+      const text = textOf(el);
+      if (!text) return false;
+      if (!/\*{2,}/.test(text)) return false;
+      const nearby = text + ' ' + (el.parentElement?.innerText || '') + ' ' + (el.closest('section,div,aside')?.innerText || '');
+      return /近30天销量|销量\(父\)|销量\(父体\)|Listing销售额|FBA费用|卖家精灵/.test(nearby);
+    });
+    if (maskedEl) {
+      maskedEl.click();
+      return JSON.stringify({ clicked: 'masked-metric', text: textOf(maskedEl).slice(0, 80) });
+    }
+
+    const panelEl = clickable.find((el) => /卖家精灵/.test(textOf(el)));
+    if (panelEl) {
+      panelEl.click();
+      return JSON.stringify({ clicked: 'panel', text: textOf(panelEl).slice(0, 80) });
+    }
+
+    return JSON.stringify({ clicked: null });
+  })()`;
+  return JSON.parse(await evalPage(send, expression, 15000));
+}
+
+async function tryInlineSellerSpriteLogin(send) {
+  const expression = `(() => {
+    const inputs = Array.from(document.querySelectorAll('input'));
+    const accountInput = inputs.find((el) =>
+      /mail|user|phone|account|邮箱|账号|手机/i.test(el.placeholder || '') ||
+      /user|account|phone|email/i.test(el.name || '')
+    );
+    const passwordInput = inputs.find((el) => (el.type || '').toLowerCase() === 'password');
+    if (!accountInput || !passwordInput) {
+      return JSON.stringify({ accountFilled: false, passwordFilled: false, clicked: false, foundForm: false });
+    }
+    accountInput.focus();
+    accountInput.value = ${JSON.stringify(ACCOUNT)};
+    accountInput.dispatchEvent(new Event('input', { bubbles: true }));
+    accountInput.dispatchEvent(new Event('change', { bubbles: true }));
+    passwordInput.focus();
+    passwordInput.value = ${JSON.stringify(PASSWORD)};
+    passwordInput.dispatchEvent(new Event('input', { bubbles: true }));
+    passwordInput.dispatchEvent(new Event('change', { bubbles: true }));
+    const btn = Array.from(document.querySelectorAll('button, a, div')).find((el) =>
+      /登录|login|sign in/i.test((el.innerText || '').trim())
+    );
+    if (btn) btn.click();
+    return JSON.stringify({
+      accountFilled: true,
+      passwordFilled: true,
+      clicked: !!btn,
+      foundForm: true
+    });
+  })()`;
+  return JSON.parse(await evalPage(send, expression, 15000));
+}
+
 async function detectAmazonSellerSprite(send) {
   const expression = `(() => {
     const body = document.body.innerText || '';
@@ -182,14 +248,20 @@ async function detectAmazonSellerSprite(send) {
       '上架时间'
     ];
     const foundMarkers = markers.filter((item) => body.includes(item) || html.includes(item));
-    const loginWarning = /请先登录亚马逊买家账号|登录亚马逊买家账号|buyer account/i.test(body);
-    return JSON.stringify({
-      url: location.href,
-      title: document.title,
-      foundMarkers,
-      loaded: foundMarkers.length > 0,
-      loginWarning
-    });
+  const maskedMetrics =
+    /近30天销量[\s\S]{0,40}\*{2,}|销量\(父(?:体)?\)[\s\S]{0,40}\*{2,}|Listing销售额[\s\S]{0,40}\*{2,}|FBA费用[\s\S]{0,40}\*{2,}/.test(
+      body
+    ) ||
+    /近30天销量[\s\S]{0,40}\*{2,}|销量\(父(?:体)?\)[\s\S]{0,40}\*{2,}|Listing销售额[\s\S]{0,40}\*{2,}|FBA费用[\s\S]{0,40}\*{2,}/.test(
+      html
+    );
+  return JSON.stringify({
+    url: location.href,
+    title: document.title,
+    foundMarkers,
+    loaded: foundMarkers.length > 0,
+    maskedMetrics
+  });
   })()`;
   return JSON.parse(await evalPage(send, expression, 20000));
 }
@@ -200,7 +272,7 @@ const status = {
   sellerSpriteLoginAttempted: false,
   sellerSpriteLoggedIn: false,
   amazonSellerSpriteDetected: false,
-  amazonBuyerLoginWarning: false,
+  amazonSellerSpriteMasked: false,
   notes: []
 };
 
@@ -245,16 +317,35 @@ try {
     amazonCheck = await detectAmazonSellerSprite(send);
   }
 
+  if (amazonCheck.loaded && amazonCheck.maskedMetrics) {
+    status.notes.push(
+      'SellerSprite panel is present but metrics are masked as ****. Trying direct login from the Amazon product page.'
+    );
+    const panelClick = await tryAmazonPanelLogin(send).catch(() => ({ clicked: null }));
+    status.notes.push(`Amazon panel login trigger: ${JSON.stringify(panelClick)}`);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const inlineLogin = await tryInlineSellerSpriteLogin(send).catch(() => ({
+      accountFilled: false,
+      passwordFilled: false,
+      clicked: false,
+      foundForm: false
+    }));
+    status.notes.push(`Amazon inline login result: ${JSON.stringify(inlineLogin)}`);
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    await reloadAmazonForInjection(send);
+    amazonCheck = await detectAmazonSellerSprite(send);
+  }
+
   status.amazonSellerSpriteDetected = amazonCheck.loaded;
-  status.amazonBuyerLoginWarning = amazonCheck.loginWarning;
+  status.amazonSellerSpriteMasked = amazonCheck.maskedMetrics;
   if (!amazonCheck.loaded) {
     status.notes.push(
       'SellerSprite still did not appear on Amazon. Confirm the extension is enabled for this Chrome profile and reload the Amazon page manually once.'
     );
   }
-  if (amazonCheck.loginWarning) {
+  if (amazonCheck.maskedMetrics) {
     status.notes.push(
-      'SellerSprite is installed, but the plugin is warning that the Amazon buyer account is not logged in. Keep the Amazon page signed in for full plugin data.'
+      'SellerSprite is visible on Amazon, but core metrics are still masked as **** after a direct Amazon-page login attempt. Manual confirmation in the panel may still be required.'
     );
   }
 
