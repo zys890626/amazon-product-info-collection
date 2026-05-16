@@ -23,5 +23,7 @@ Use this reference when the Chrome session may not have SellerSprite installed o
 
 - Do not save the password into Chrome's password manager.
 - After login, verify that the page shows the signed-in account instead of a login button.
+- After installing the extension, reload the Amazon page once. SellerSprite often will not inject into tabs that were already open before installation.
+- If the Amazon page shows a SellerSprite warning asking for an Amazon buyer login, keep the Amazon page signed in. SellerSprite may be installed and logged in already, but still unable to show full metrics until Amazon itself is signed in.
 - On Amazon product pages, SellerSprite may still show a buyer-account warning. That does not always mean SellerSprite login failed.
 - Treat extension installation as complete only after the Chrome extension confirmation is accepted.
