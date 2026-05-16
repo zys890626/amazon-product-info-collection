@@ -1,0 +1,4 @@
+interface:
+  display_name: "亚马逊产品信息收集"
+  short_description: "采集 Amazon 商品页与卖家精灵插件的核心产品数据。"
+  default_prompt: "Use $amazon-product-info-collection to open Amazon product pages, wait for SellerSprite data to load, and collect structured product information from ASINs."
