@@ -89,14 +89,21 @@ function extractSellerSprite(body, asin) {
   };
   const inventoryMatch = around.match(/剩余库存\s*([0-9,]+)/);
   return {
-    sellerSpriteLoaded: /卖家精灵|数据来源：卖家精灵|近30天销量|销量\(父\)|FBA费用|上架时间/.test(around),
+    sellerSpriteLoaded:
+      /卖家精灵|数据来源：卖家精灵|近30天销量|销量\(父\)|销量\(父体\)|FBA费用|上架时间|关键词反查/.test(
+        around
+      ),
     snippet: around,
-    ssSalesParent: parseNumber(pick([/近30天销量(?:\(父体\)|\(父\))?[:：]?\s*([0-9,]+)/, /销量\(父\)[:：]?\s*([0-9,]+)/])),
-    ssRevenue: parseNumber(pick([/Listing销售额[:：]?\s*\$?([0-9,.]+)/, /销售额[:：]?\s*\$?([0-9,.]+)/])),
+    ssSalesParent: parseNumber(
+      pick([/近30天销量(?:\(父体\)|\(父\))?[:：]?\s*([0-9,]+)/, /销量\(父\)[:：]?\s*([0-9,]+)/])
+    ),
+    ssRevenue: parseNumber(
+      pick([/Listing销售额[:：]?\s*\$?([0-9,.]+)/, /销售额[:：]?\s*\$?([0-9,.]+)/])
+    ),
     ssFbaFee: parseNumber(pick([/FBA费用[:：]?\s*\$?([0-9.]+)/])),
     ssListedDate: pick([/上架时间[:：]?\s*(\d{4}-\d{2}-\d{2})/]),
-    ssBrand: pick([/品牌[:：]\s*([^\s]+)/]),
-    ssSeller: pick([/卖家[:：]\s*([^\s]+)/]),
+    ssBrand: pick([/品牌[:：]?\s*([^\s]+)/]),
+    ssSeller: pick([/卖家[:：]?\s*([^\s]+)/]),
     ssInventory: inventoryMatch ? parseNumber(inventoryMatch[1]) : null
   };
 }
@@ -108,7 +115,9 @@ async function evalPage(send, expression, timeout = 45000) {
     timeout
   );
   if (response.result?.exceptionDetails) {
-    throw new Error(response.result.exceptionDetails.exception?.description || response.result.exceptionDetails.text);
+    throw new Error(
+      response.result.exceptionDetails.exception?.description || response.result.exceptionDetails.text
+    );
   }
   return response.result.result.value;
 }
@@ -116,7 +125,7 @@ async function evalPage(send, expression, timeout = 45000) {
 async function collectOne(send, asin) {
   const url = `https://www.amazon.com/dp/${asin}`;
   await send('Page.navigate', { url }, 12000).catch(() => {});
-  await new Promise((resolve) => setTimeout(resolve, 12000));
+  await new Promise((resolve) => setTimeout(resolve, 15000));
   const raw = await evalPage(
     send,
     `(() => {
@@ -138,6 +147,11 @@ async function collectOne(send, asin) {
         text('#productDetails_techSpec_section_1'),
         text('#prodDetails')
       ].filter(Boolean).join('\\n');
+      const sellerSpritePanelText = Array.from(document.querySelectorAll('body *'))
+        .map((el) => el.innerText?.trim() || '')
+        .filter((value) => value && /卖家精灵|关键词反查|加入产品库|近30天销量|FBA费用|上架时间/.test(value))
+        .slice(0, 30)
+        .join('\\n');
       return JSON.stringify({
         finalUrl: location.href,
         pageTitle: document.title,
@@ -153,20 +167,26 @@ async function collectOne(send, asin) {
         bullets,
         imageUrls,
         productDetailsText: detailsText.replace(/\\s+/g, ' ').slice(0, 4000),
+        sellerSpritePanelText,
         bodyText: body.slice(0, 20000)
       });
     })()`,
     45000
   );
   const page = JSON.parse(raw);
-  const ss = extractSellerSprite(page.bodyText || '', asin);
+  const ss = extractSellerSprite(`${page.bodyText || ''}\n${page.sellerSpritePanelText || ''}`, asin);
   return {
     asin,
     url,
     finalUrl: page.finalUrl,
     status: page.title ? 'OK' : 'NO_TITLE',
     title: page.title || page.pageTitle,
-    brand: ss.ssBrand || (page.brandLine || '').replace(/^Brand:\s*/i, '').replace(/^Visit the\s+/i, '').replace(/\s+Store$/i, ''),
+    brand:
+      ss.ssBrand ||
+      (page.brandLine || '')
+        .replace(/^Brand:\s*/i, '')
+        .replace(/^Visit the\s+/i, '')
+        .replace(/\s+Store$/i, ''),
     seller: ss.ssSeller || page.seller || page.buybox,
     price: parseNumber(page.priceText),
     rating: parseNumber(page.ratingText),
@@ -203,6 +223,10 @@ for (const asin of asins) {
     results.push({ asin, status: 'ERROR', error: error.message });
     console.log(`${asin} ERROR ${error.message}`);
   }
-  await fs.writeFile(args.out, JSON.stringify({ createdAt: new Date().toISOString(), total: asins.length, results }, null, 2), 'utf8');
+  await fs.writeFile(
+    args.out,
+    JSON.stringify({ createdAt: new Date().toISOString(), total: asins.length, results }, null, 2),
+    'utf8'
+  );
 }
 ws.close();
